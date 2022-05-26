@@ -1,0 +1,153 @@
+if(vars.recCount > 0 && vars.recCount <= vars.maxCount)
+{ 
+  /* --------------------- Query Editing Starts here ------------------------------*/
+  //change the column names to the required columns and also change schema name to the required schema
+  var query = xtk.queryDef.create(  
+      <queryDef schema={vars.table_name} operation="select">  
+          <select>  
+            <node expr="@mobile"/>
+            <node expr="@trade_id"/>
+            <node expr="@field1"/>            
+            <node expr="@field2"/>            
+            <node expr="@field3"/>
+            <node expr="@field4"/> 
+            <node expr="@field5"/> 
+            <node expr="@field6"/> 
+            <node expr="@field7"/> 
+            <node expr="@field8"/> 
+            <node expr="@field9"/> 
+            <node expr="@field10"/>
+            <node expr="@imageURL"/>
+                                      
+           </select>  
+        </queryDef> 
+   );
+  /* --------------------- Query Editing Ends here ------------------------------*/
+   
+  //Executes the query
+  var items = new XML(query.ExecuteQuery());
+  
+   
+  //Declare and Initialize the basic conncetion variables
+  var insertUpdateQuery = '';
+  var batchSize = 100;
+  var currentNumber = 0;
+  var connection = application.getConnection();
+  var campaign_Name = vars.campaign_name;
+  var segment_label = vars.segment_name;
+  var segment_id = vars.segment_id;
+  var acc = vars.accountId;
+  var pass = vars.password;
+   
+  
+  // iterate through all records and call the api
+  for each (var item in items)
+  {   
+  
+    
+  /* --------------------- Editing allowed Starts here ------------------------------*/
+      //declare and initialize the personalized variables and further used it into the message content variable
+
+      //please use 'no' as variable name for mobile number field. because further this variable is utilized in the api url.
+      var no = item.@mobile;
+      var trade_id = item.@trade_id;
+      var imageURL = item.@imageURL;
+
+      //declare and initialize the message content variable and concat the personalized variables and use \n (backward slash)for the next line
+      var cont = item.@field1.toString().split('%QQ').join('\n') + item.@field2.toString().split('%QQ').join('\n') + item.@field3.toString().split('%QQ').join('\n')+ item.@field4.toString().split('%QQ').join('\n') + item.@field5.toString().split('%QQ').join('\n') + item.@field6.toString().split('%QQ').join('\n') + item.@field7.toString().split('%QQ').join('\n') + item.@field8.toString().split('%QQ').join('\n') + item.@field9.toString().split('%QQ').join('\n') + item.@field10.toString().split('%QQ').join('\n');
+      //var content_final= cont.toString().replace('\'','SQ');        
+      
+   /* --------------------- Editing allowed Ends here ------------------------------*/   
+      
+      //auto generated primary key
+      var tempId = new Date().getTime() + '' + Math.random();
+      
+
+                 
+      //do not change the url variable
+      var content = encodeURIComponent(cont);
+                                                            
+      getUrl ="https://media.smsgupshup.com/GatewayAPI/rest?method=SendMediaMessage&format=json&userid="+acc+"&password="+pass+"&send_to="+no+"&caption="+content+"&v=1.1&auth_scheme=plain&msg_type=IMAGE&media_url="+imageURL+"&isHSM=true";
+      
+      /* call the function starts here. don't change here */
+      
+      var response_returned = apiCall(getUrl);
+      
+      
+      if(response_returned.toString().indexOf('something went wrong') === -1 && response_returned.toString().indexOf("Exception occurred in ACM") === -1){
+      
+        var status = response_returned.response.status;
+        var details = response_returned.response.details;
+        var r_id = response_returned.response.id;
+        
+        logInfo("Response Details : "+status+' '+details+' '+r_id);
+        
+        insertUpdateQuery += "INSERT INTO hslWhatsapp_API_Execution_Logs (sCampaignName,sMessage_content,sMobileNo,sResponseDetails,sResponseId,sSegmentLabel,sStatus,sSegment_id,sTimeStampId,sExecutionDate,sTradingid,sImageurl) VALUES ('"+campaign_Name+"','"+cont+"','"+no+"','"+details+"','"+r_id+"','"+segment_label+"','"+status+"','"+segment_id+"','"+tempId+"','"+formatDate(new Date(),'%4Y/%2M/%2D %02H:%02N:%02S')+"','"+trade_id+"','"+imageURL+"');";
+       }
+       else if(response_returned.toString().indexOf('something went wrong') !== -1)
+       {
+        insertUpdateQuery += "INSERT INTO hslWhatsapp_API_Execution_Logs (sCampaignName,sMessage_content,sMobileNo,sResponseDetails,sResponseId,sSegmentLabel,sStatus,sSegment_id,sTimeStampId,sExecutionDate,sTradingid,sImageurl) VALUES ('"+campaign_Name+"','"+cont+"','"+no+"','"+response_returned+"','','"+segment_label+"','failed','"+segment_id+"','"+tempId+"','"+formatDate(new Date(),'%4Y/%2M/%2D %02H:%02N:%02S')+"','"+trade_id+"','"+imageURL+"');";
+        logInfo("Response Details : "+response_returned);
+       }
+       else{
+        insertUpdateQuery += "INSERT INTO hslWhatsapp_API_Execution_Logs(sCampaignName,sMessage_content,sMobileNo,sResponseDetails,sResponseId,sSegmentLabel,sStatus,sSegment_id,sTimeStampId,sExecutionDate,sTradingid,sImageurl) VALUES ('"+campaign_Name+"','"+cont+"','"+no+"','"+response_returned+"','','"+segment_label+"','Exception','"+segment_id+"','"+tempId+"','"+formatDate(new Date(),'%4Y/%2M/%2D %02H:%02N:%02S')+"','"+trade_id+"','"+imageURL+"');";
+        logInfo("Response Details : "+response_returned);
+       }
+       
+      /* call the function ends here. don't change here */
+      
+      logInfo("Insert Update Query" +insertUpdateQuery);
+      logInfo("Current Number"+currentNumber);
+      logInfo("Record Count"+vars.recCount);
+      logInfo("Encoded COntent"+content);
+      
+    if(currentNumber >= batchSize || currentNumber === (vars.recCount-1)){
+      if(insertUpdateQuery !== ''){
+        connection.execute(insertUpdateQuery);
+        connection.commit();
+      }
+      //currentNumber = 0;
+      batchSize += 100;
+      insertUpdateQuery = '';
+    }
+    currentNumber += 1;
+  }      
+  
+  //disconnect to the database conncetion 
+  connection.commit();
+  connection.dispose();
+}
+else{
+    logError("Record count should be greater than zero and less than or equal to the count specified in the previous activity. Count specified in previous activity is "+vars.maxCount);
+}
+
+
+//function to call the api and return the response
+function apiCall(url)
+{
+  var http;
+  try{
+    http = new HttpClientRequest(url);
+    http.method = 'GET';
+    var response = http.execute();        
+  }
+  catch(e){
+    http.disconnect();
+    return "Exception occurred in ACM "+e +" for URL ";
+    //logInfo("Exception occurred in ACM "+e +" for URL "+url);
+  }
+  if(http.response !== undefined && http.response.code === 200)
+  {
+      var res_body = JSON.parse(http.response.body);
+      var status = res_body.response.status;
+      var details = res_body.response.details;
+      var r_id = res_body.response.id;
+      http.disconnect();
+      return res_body;
+  }
+  else{
+    var code = http.response.code;
+    http.disconnect();
+    return 'something went wrong '+code +" http code";
+  }
+}
